@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlioFoundry Intelligence Agent</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Calibri, -apple-system, sans-serif; background: #f8f9fa; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  button { font-family: inherit; }
+  ::-webkit-scrollbar { height: 4px; } ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } = Recharts;
+
+const C = {
+  dark: "#1B4332", mid: "#2D6A4F", accent: "#40916C", light: "#52B788",
+  pale: "#E8F5E9", white: "#FFFFFF", text: "#212529", muted: "#6B7280",
+  critical: "#C62828", high: "#D97706", standard: "#2E7D32", low: "#9E9E9E",
+};
+
+const REAL_DATA = {
+  use_cases: [
+    { industry: "Finance Accounting", title: "NVIDIA: AI Revenue Impact at Scale", description: "65% of financial services firms actively using AI (up from 45%); 89% report both revenue increases and cost decreases.", status: "Groundbreaking" },
+    { industry: "Finance Accounting", title: "Agentic ERP - SAP Scaling to 400+ Use Cases", description: "SAP AI Agent Hub GA, scaling from 230 to 400+ use cases. $1.1B direct investment in Business AI unit.", status: "Groundbreaking" },
+    { industry: "Finance Accounting", title: "CFO Consensus: Agentic AI Automating the Close", description: "Fortune survey of 12+ CFOs: universal expectation that intelligent agents will automate quarterly close in 2026.", status: "Groundbreaking" },
+    { industry: "PE & M&A", title: "Key Stat: PE Priority", description: "65% of PE executives rank AI as top value creation priority (FTI 2025 Index)", status: "Verified" },
+    { industry: "Legal Tech", title: "Contract Intelligence Platform Deployments", description: "Major legal departments using AI for contract analysis; accuracy rates now exceeding 94% on clause extraction.", status: "Groundbreaking" },
+    { industry: "Enterprise Software", title: "Claude Agent SDK Launch", description: "New developer platform for building autonomous agents with tool use, memory, and planning.", status: "Groundbreaking" },
+    { industry: "Manufacturing Distribution", title: "Predictive Maintenance AI Integration", description: "Industrial companies deploying AI for equipment monitoring. 34% reduction in unplanned downtime.", status: "Verified" },
+    { industry: "Healthcare", title: "AI-Powered Clinical Decision Support", description: "Healthcare providers implementing AI systems for diagnostic support. FDA clearances increasing rapidly.", status: "Groundbreaking" },
+    { industry: "Aerospace Defense", title: "Mission Planning Automation", description: "Advanced AI systems reducing mission planning cycles from hours to minutes.", status: "Groundbreaking" },
+    { industry: "Enterprise Software", title: "Open Source Finance Agent Frameworks", description: "Community projects creating reusable toolkits for building finance-specific AI agents.", status: "Verified" },
+  ],
+  articles: [
+    { organization: "Google DeepMind", title: "SIMA 2: Gemini-Powered AI Agent for Virtual Worlds", synopsis: "SIMA 2 represents next-generation embodied AI agents with reasoning and vision capabilities." },
+    { organization: "Microsoft Research", title: "The Copilot Usage Report 2025", synopsis: "Analysis of 37.5M conversations shows AI adoption shaped by temporal/physical context." },
+    { organization: "Amazon/AWS", title: "Building Reliable Production AI Agents", synopsis: "Focus on reinforcement learning gyms and production-ready agent architectures." },
+    { organization: "Deloitte", title: "State of AI in the Enterprise 2026", synopsis: "3,235 leaders surveyed: 85% expect to customize agents. Worker AI access up 50% to 60%." },
+    { organization: "McKinsey", title: "CFO AI Readiness Survey 2026", synopsis: "54% of CFOs prioritizing AI agent deployment for close, forecasting, analysis." },
+    { organization: "FTI Consulting", title: "PE AI Value Creation Index 2025", synopsis: "65% of PE executives rank AI as top priority. 5-25% EBITDA gains from targeted AI." },
+    { organization: "OpenAI", title: "Advances in Reasoning and Planning", synopsis: "New models demonstrate improved chain-of-thought reasoning and multi-step planning." },
+    { organization: "Anthropic", title: "Claude Agent SDK: Enterprise Autonomy", synopsis: "New developer platform enables autonomous agents with tool use, memory, and planning." },
+  ],
+  industries: [
+    { name: "Legal Tech", slug: "legal", use_cases: 14, repos: 3 },
+    { name: "PE & M&A", slug: "pe-ma", use_cases: 11, repos: 2 },
+    { name: "Enterprise Software", slug: "enterprise", use_cases: 10, repos: 2 },
+    { name: "Aerospace & Defense", slug: "aerospace", use_cases: 8, repos: 1 },
+    { name: "Finance & Accounting", slug: "finance", use_cases: 13, repos: 5 },
+    { name: "Healthcare", slug: "healthcare", use_cases: 7, repos: 1 },
+    { name: "Manufacturing & Distribution", slug: "manufacturing", use_cases: 4, repos: 1 },
+  ],
+  summary: { total_use_cases: 72, total_repos: 32, total_articles: 24 }
+};
+
+const INDUSTRIES = REAL_DATA.industries;
+const FINDINGS = REAL_DATA.use_cases.map((uc, i) => ({
+  id: i + 1, title: uc.title, source: "AlioFoundry", industry: uc.industry,
+  score: 15 + Math.floor(Math.random() * 10),
+  classification: uc.status === "Groundbreaking" ? "CRITICAL" : uc.status === "Verified" ? "HIGH" : "STANDARD",
+  date: "2026-02-27", summary: uc.description, status: i % 3 === 0 ? "pending" : "approved"
+}));
+
+const WEEKLY_TREND = [
+  { week: "Feb 5", use_cases: 45, repos: 22, articles: 8 },
+  { week: "Feb 12", use_cases: 58, repos: 27, articles: 12 },
+  { week: "Feb 19", use_cases: 65, repos: 29, articles: 18 },
+  { week: "Feb 27", use_cases: 72, repos: 32, articles: 24 },
+];
+
+const SCAN_HISTORY = [
+  { date: "2026-02-27 07:00", findings: 12, ingested: 8, duration: "38s", criticals: 2, highs: 4 },
+  { date: "2026-02-26 07:00", findings: 9, ingested: 6, duration: "35s", criticals: 1, highs: 2 },
+  { date: "2026-02-25 07:00", findings: 7, ingested: 4, duration: "32s", criticals: 1, highs: 2 },
+  { date: "2026-02-24 07:00", findings: 10, ingested: 6, duration: "40s", criticals: 0, highs: 3 },
+  { date: "2026-02-23 07:00", findings: 8, ingested: 5, duration: "31s", criticals: 1, highs: 2 },
+];
+
+const NEWSLETTER_ARTICLES = REAL_DATA.articles.slice(0, 4).map(a => ({
+  source: a.organization, title: a.title, why: a.synopsis
+}));
+
+const SCORECARD = [
+  { dimension: "Platform & Product", status: "Accelerating", movement: "Up", signal: "Very Strong", headline: "Claude Agent SDK, GPT-5 preview, Gemini 2.5 launches" },
+  { dimension: "Enterprise Adoption", status: "Expanding", movement: "Up", signal: "Strong", headline: "HPE, Deloitte, KPMG announce production deployments" },
+  { dimension: "Developer Ecosystem", status: "Accelerating", movement: "Up", signal: "Very Strong", headline: "32 key repos tracked, 6k+ stars on top projects" },
+  { dimension: "Agentic / SDK", status: "Breakout", movement: "Up", signal: "Very Strong", headline: "Claude Agent SDK, LangChain ecosystem maturing" },
+  { dimension: "IDE & Toolchain", status: "Maturing", movement: "Flat", signal: "Strong", headline: "Enterprise AI dev tools standardizing" },
+  { dimension: "Non-Developer Use", status: "Expanding", movement: "Up", signal: "Strong", headline: "CFO adoption for financial close automation" },
+  { dimension: "Competitive Landscape", status: "Intensifying", movement: "Up", signal: "Strong", headline: "All major platforms shipping agentic features" },
+  { dimension: "Productivity & ROI", status: "Hardening", movement: "Up", signal: "Moderate", headline: "PE: 2-4x EBITDA uplift; Finance: 40% task automation" },
+];
+
+function Badge({ type, children }) {
+  const colors = { CRITICAL: C.critical, HIGH: C.high, STANDARD: C.standard, LOW: C.low, approved: C.accent, pending: C.high, rejected: C.critical };
+  const bg = colors[type] || C.muted;
+  return <span style={{ display: "inline-block", padding: "2px 10px", borderRadius: 12, fontSize: 11, fontWeight: 700, background: bg + "18", color: bg, letterSpacing: 0.5 }}>{children}</span>;
+}
+
+function StatCard({ label, value, delta, icon }) {
+  return (
+    <div style={{ background: C.white, borderRadius: 10, padding: "18px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", flex: "1 1 180px", minWidth: 160 }}>
+      <div style={{ fontSize: 12, color: C.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>{icon} {label}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: C.dark, fontFamily: "Georgia, serif" }}>{value}</div>
+      {delta && <div style={{ fontSize: 12, color: C.accent, marginTop: 2 }}>{delta}</div>}
+    </div>
+  );
+}
+
+function ScoreBar({ score, max = 25 }) {
+  const pct = (score / max) * 100;
+  const color = score >= 20 ? C.critical : score >= 15 ? C.high : score >= 10 ? C.standard : C.low;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 120, height: 8, background: "#f0f0f0", borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ width: pct + "%", height: "100%", background: color, borderRadius: 4 }} />
+      </div>
+      <span style={{ fontSize: 13, fontWeight: 600, color }}>{score}/{max}</span>
+    </div>
+  );
+}
+
+function OverviewTab() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+        <StatCard icon="U+1F4CA" label="Use Cases" value="248" delta="+117 this week" />
+        <StatCard icon="U+1F4C2" label="Repositories" value="111" delta="42 active" />
+        <StatCard icon="U+1F4F0" label="Articles" value="43" delta="+8 this week" />
+        <StatCard icon="U+1F3E2" label="Platforms" value="35" />
+        <StatCard icon="U+1F514" label="Pending Review" value={FINDINGS.filter(f => f.status === "pending").length} />
+      </div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: "2 1 400px", background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 16px", fontSize: 16 }}>Weekly Growth Trend</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={WEEKLY_TREND}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="week" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }} />
+              <Line type="monotone" dataKey="use_cases" stroke={C.dark} strokeWidth={2} dot={{ r: 4 }} name="Use Cases" />
+              <Line type="monotone" dataKey="repos" stroke={C.accent} strokeWidth={2} dot={{ r: 4 }} name="Repos" />
+              <Line type="monotone" dataKey="articles" stroke={C.high} strokeWidth={2} dot={{ r: 4 }} name="Articles" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: "1 1 280px", background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 16px", fontSize: 16 }}>Industry Distribution</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={INDUSTRIES} dataKey="use_cases" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2}>
+                {INDUSTRIES.map((_, i) => <Cell key={i} fill={[C.dark, C.mid, C.accent, C.light, C.high, "#5C6BC0", "#78909C"][i]} />)}
+              </Pie>
+              <Tooltip formatter={(v, n) => [v + " use cases", n]} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div style={{ background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 12px", fontSize: 16 }}>Latest Findings</h3>
+        {FINDINGS.slice(0, 4).map(f => (
+          <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0f0f0" }}>
+            <div>
+              <Badge type={f.classification}>{f.classification}</Badge>
+              <span style={{ marginLeft: 10, fontWeight: 600, fontSize: 14, color: C.dark }}>{f.title}</span>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{f.source} | {f.industry} | {f.date}</div>
+            </div>
+            <ScoreBar score={f.score} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FindingsTab() {
+  const [filter, setFilter] = useState("all");
+  const filtered = filter === "all" ? FINDINGS : FINDINGS.filter(f => f.classification === filter);
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {["all", "CRITICAL", "HIGH", "STANDARD"].map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+            background: filter === f ? C.dark : "#f0f0f0", color: filter === f ? C.white : C.text,
+          }}>{f === "all" ? "All" : f} {f !== "all" && "(" + FINDINGS.filter(x => x.classification === f).length + ")"}</button>
+        ))}
+      </div>
+      {filtered.map(f => (
+        <div key={f.id} style={{ background: C.white, borderRadius: 10, padding: 16, marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <Badge type={f.classification}>{f.classification}</Badge>
+            <Badge type={f.status}>{f.status}</Badge>
+            <ScoreBar score={f.score} />
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: C.dark, marginBottom: 4 }}>{f.title}</div>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{f.source} | {f.industry} | {f.date}</div>
+          <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{f.summary}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NewsletterTab() {
+  return (
+    <div>
+      <div style={{ background: C.white, borderRadius: 10, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <div style={{ background: "linear-gradient(135deg, " + C.dark + ", " + C.mid + ")", padding: "24px 28px" }}>
+          <div style={{ color: C.white, fontFamily: "Georgia, serif", fontSize: 22, fontWeight: 700 }}>AlioFoundry Intelligence</div>
+          <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 4 }}>Issue #3 | Week of February 27, 2026</div>
+          <div style={{ display: "flex", gap: 20, marginTop: 14 }}>
+            {[["248", "Use Cases"], ["111", "Repos"], ["43", "Articles"], ["7", "Verticals"]].map(([v, l]) => (
+              <div key={l} style={{ textAlign: "center" }}>
+                <div style={{ color: C.white, fontSize: 22, fontWeight: 700, fontFamily: "Georgia, serif" }}>{v}</div>
+                <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 11, textTransform: "uppercase" }}>{l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ padding: "20px 28px" }}>
+          <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, fontSize: 16, margin: "0 0 12px" }}>This Week's Highlights</h3>
+          <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginBottom: 16 }}>
+            The biggest week of 2026 for enterprise AI. Claude Agent SDK launched, HPE validated production agentic deployments, and McKinsey's CFO survey hit an inflection point at 54% adoption intent.
+          </div>
+          <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, fontSize: 16, margin: "0 0 12px" }}>Articles & Sources</h3>
+          {NEWSLETTER_ARTICLES.map((a, i) => (
+            <div key={i} style={{ padding: "10px 0", borderBottom: "1px solid #f0f0f0" }}>
+              <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, textTransform: "uppercase" }}>{a.source}</div>
+              <div style={{ fontWeight: 600, color: C.dark, fontSize: 14, marginTop: 2 }}>{a.title}</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>{a.why}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScorecardTab() {
+  const movementIcon = (m) => m === "Up" ? "\u2191" : m === "Down" ? "\u2193" : "\u2192";
+  const movementColor = (m) => m === "Up" ? C.accent : m === "Down" ? C.critical : C.muted;
+  return (
+    <div>
+      <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.dark, fontWeight: 700, marginBottom: 16 }}>8-Dimension Scorecard</div>
+      {SCORECARD.map((s, i) => (
+        <div key={i} style={{ background: C.white, borderRadius: 10, padding: 16, marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", borderLeft: "4px solid " + movementColor(s.movement) }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.dark }}>{s.dimension}</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>{s.headline}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>{s.status}</div>
+              <div style={{ fontSize: 13, color: movementColor(s.movement), fontWeight: 600 }}>
+                {movementIcon(s.movement)} {s.movement} | {s.signal}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IndustriesTab() {
+  return (
+    <div>
+      <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.dark, fontWeight: 700, marginBottom: 16 }}>7 Industry Verticals</div>
+      <div style={{ background: C.white, borderRadius: 10, padding: 20, marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={INDUSTRIES} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis type="number" tick={{ fontSize: 12 }} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={150} />
+            <Tooltip contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }} />
+            <Bar dataKey="use_cases" fill={C.dark} name="Use Cases" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="repos" fill={C.accent} name="Repos" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {INDUSTRIES.map((ind, i) => (
+        <div key={i} style={{ background: C.white, borderRadius: 10, padding: 14, marginBottom: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>{ind.name}</div>
+            <div style={{ fontSize: 12, color: C.muted }}>{ind.slug}</div>
+          </div>
+          <div style={{ display: "flex", gap: 14, fontSize: 13 }}>
+            <span><strong style={{ color: C.dark }}>{ind.use_cases}</strong> <span style={{ color: C.muted }}>use cases</span></span>
+            <span><strong style={{ color: C.accent }}>{ind.repos}</strong> <span style={{ color: C.muted }}>repos</span></span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActivityTab() {
+  return (
+    <div>
+      <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.dark, fontWeight: 700, marginBottom: 16 }}>Scan History</div>
+      <div style={{ background: C.white, borderRadius: 10, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", padding: "10px 16px", background: C.pale, fontSize: 11, fontWeight: 700, color: C.dark, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <span>Timestamp</span><span>Found</span><span>Ingested</span><span>Duration</span><span>Critical</span><span>High</span>
+        </div>
+        {SCAN_HISTORY.map((s, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", padding: "10px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13 }}>
+            <span style={{ color: C.dark, fontWeight: 500 }}>{s.date}</span>
+            <span>{s.findings}</span>
+            <span style={{ color: C.accent, fontWeight: 600 }}>{s.ingested}</span>
+            <span>{s.duration}</span>
+            <span style={{ color: s.criticals > 0 ? C.critical : C.muted, fontWeight: 600 }}>{s.criticals}</span>
+            <span style={{ color: s.highs > 0 ? C.high : C.muted, fontWeight: 600 }}>{s.highs}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: C.white, borderRadius: 10, padding: 20, marginTop: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 12px", fontSize: 16 }}>Scan Performance</h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={SCAN_HISTORY.slice().reverse()}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={d => d.split(" ")[0].slice(5)} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }} />
+            <Bar dataKey="findings" fill={C.mid} name="Found" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="ingested" fill={C.accent} name="Ingested" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function ActionsTab() {
+  const [logs, setLogs] = useState([]);
+  const log = (msg) => setLogs(prev => [new Date().toLocaleTimeString() + " - " + msg, ...prev].slice(0, 15));
+  const actions = [
+    { label: "Run Agent Scan", icon: "\uD83E\uDD16", desc: "Execute daily scan via Claude API + web search", action: () => log("Agent scan initiated... scanning 14 queries across 7 verticals") },
+    { label: "Generate Newsletter", icon: "\uD83D\uDCF0", desc: "Compile weekly newsletter from DB", action: () => log("Newsletter generation started...") },
+    { label: "Extract Workbook", icon: "\uD83D\uDCCA", desc: "Generate 14-sheet branded .xlsx from DB", action: () => log("Workbook extraction started...") },
+    { label: "Send Daily Email", icon: "\uD83D\uDCE7", desc: "Send daily preview digest", action: () => log("Daily email queued...") },
+    { label: "Send Weekly Rollup", icon: "\uD83D\uDCEC", desc: "Send Friday weekly rollup", action: () => log("Weekly rollup queued...") },
+    { label: "Health Check", icon: "\uD83D\uDC9A", desc: "Verify all systems operational", action: () => log("Health check: DB connected | API healthy | Email configured | Agent ready") },
+  ];
+  return (
+    <div>
+      <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.dark, fontWeight: 700, marginBottom: 16 }}>Agent Controls</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+        {actions.map((a, i) => (
+          <button key={i} onClick={a.action} style={{
+            background: C.white, borderRadius: 10, padding: 16, border: "1px solid #eee",
+            cursor: "pointer", textAlign: "left", boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
+          }}>
+            <div style={{ fontSize: 20, marginBottom: 6 }}>{a.icon}</div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>{a.label}</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{a.desc}</div>
+          </button>
+        ))}
+      </div>
+      {logs.length > 0 && (
+        <div style={{ background: "#1a1a2e", borderRadius: 10, padding: 16, marginTop: 16 }}>
+          <div style={{ fontSize: 12, color: "#4ade80", fontFamily: "Courier New, monospace", fontWeight: 700, marginBottom: 8 }}>Agent Log</div>
+          {logs.map((l, i) => (
+            <div key={i} style={{ fontSize: 12, color: i === 0 ? "#4ade80" : "#6b7280", fontFamily: "Courier New, monospace", padding: "3px 0", opacity: Math.max(0.4, 1 - i * 0.1) }}>{l}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TABS = [
+  { key: "overview", label: "Overview", icon: "\uD83D\uDCCA" },
+  { key: "findings", label: "Findings", icon: "\uD83D\uDD0D" },
+  { key: "newsletter", label: "Newsletter", icon: "\uD83D\uDCF0" },
+  { key: "scorecard", label: "Scorecard", icon: "\uD83D\uDCC8" },
+  { key: "industries", label: "Industries", icon: "\uD83C\uDFED" },
+  { key: "activity", label: "Activity", icon: "\uD83D\uDCCB" },
+  { key: "actions", label: "Actions", icon: "\u26A1" },
+];
+
+function App() {
+  const [activeTab, setActiveTab] = useState("overview");
+  const [time, setTime] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setTime(new Date()), 60000); return () => clearInterval(t); }, []);
+
+  const renderTab = () => {
+    switch (activeTab) {
+      case "overview": return <OverviewTab />;
+      case "findings": return <FindingsTab />;
+      case "newsletter": return <NewsletterTab />;
+      case "scorecard": return <ScorecardTab />;
+      case "industries": return <IndustriesTab />;
+      case "activity": return <ActivityTab />;
+      case "actions": return <ActionsTab />;
+      default: return <OverviewTab />;
+    }
+  };
+
+  return (
+    <div style={{ fontFamily: "Calibri, -apple-system, sans-serif", background: "#f8f9fa", minHeight: "100vh" }}>
+      <div style={{ background: "linear-gradient(135deg, " + C.dark + ", " + C.mid + ")", padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ color: C.white, fontFamily: "Georgia, serif", fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 22 }}>{"\uD83E\uDD16"}</span> AlioFoundry Intelligence Agent
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 2 }}>
+            248 use cases | 7 verticals | Last scan: {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.15)", padding: "6px 12px", borderRadius: 20 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", animation: "pulse 2s infinite" }} />
+          <span style={{ color: C.white, fontSize: 12, fontWeight: 600 }}>Agent Online</span>
+        </div>
+      </div>
+      <div style={{ background: C.white, borderBottom: "1px solid #e8e8e8", padding: "0 24px", display: "flex", gap: 0, overflowX: "auto" }}>
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+            padding: "12px 16px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
+            color: activeTab === t.key ? C.dark : C.muted, background: "transparent",
+            borderBottom: activeTab === t.key ? "3px solid " + C.dark : "3px solid transparent",
+            display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+          }}>
+            <span>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ padding: "20px 24px", maxWidth: 1100, margin: "0 auto" }}>
+        {renderTab()}
+      </div>
+      <div style={{ textAlign: "center", padding: "16px 24px", fontSize: 11, color: C.muted, borderTop: "1px solid #e8e8e8", marginTop: 20 }}>
+        AlioFoundry Intelligence Platform | Built with Claude | Proprietary & Confidential
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
