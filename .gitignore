@@ -1,0 +1,28 @@
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.production
+.env.*
+
+# Node modules
+node_modules/
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+
+# Sensitive data files
+*.xlsx
+*.docx
+*.zip
+
+# Local workspace folders
+alioFoundry-workspace/
+alioFoundry-reports/
+alioFoundry-scans/
+alioFoundry-data/
