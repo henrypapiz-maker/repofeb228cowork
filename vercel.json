@@ -1,22 +1,5 @@
 {
-  "name": "aliofoundry",
   "version": 2,
-  "public": false,
-  "env": {
-    "DATABASE_URL": "@database_url",
-    "ANTHROPIC_API_KEY": "@anthropic_api_key",
-    "RESEND_API_KEY": "@resend_api_key",
-    "ADMIN_API_KEY": "@admin_api_key",
-    "ADMIN_EMAIL": "@admin_email",
-    "FROM_EMAIL": "@from_email"
-  },
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "nodejs18.x",
-      "memory": 3008,
-      "maxDuration": 300
-    }
-  },
   "crons": [
     {
       "path": "/api/agent-scan?key=${ADMIN_API_KEY}",
@@ -29,12 +12,6 @@
     {
       "path": "/api/notify?type=weekly&key=${ADMIN_API_KEY}",
       "schedule": "0 14 * * 5"
-    }
-  ],
-  "builds": [
-    {
-      "src": "api/**/*.js",
-      "use": "@vercel/node"
     }
   ]
 }
