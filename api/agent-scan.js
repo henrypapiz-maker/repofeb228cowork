@@ -29,7 +29,7 @@ const handler = async (req, res) => {
         'x-api-key': process.env.ANTHROPIC_API_KEY,
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250514',
+        model: 'claude-sonnet-4-5-20241022',
         max_tokens: 4096,
         system: `You are the AlioFoundry Intelligence Agent. Your role is to discover, evaluate, and score enterprise AI developments that matter to CFOs, PE operators, and enterprise technology leaders.
 
