@@ -144,14 +144,21 @@ async function generateDailyDigest(sql) {
     ? findings.map(f => {
         const badgeClass = f.classification === 'CRITICAL' ? 'critical' : f.classification === 'HIGH' ? 'high' : 'standard';
         const badgeBg = f.classification === 'CRITICAL' ? '#d62828' : f.classification === 'HIGH' ? '#f77f00' : '#2E7D32';
+        const docLinks = f.documentation_links ? f.documentation_links.split('; ').filter(l => l.startsWith('http')) : [];
+        const sourceLink = f.source_url && f.source_url.startsWith('http') ? f.source_url : null;
+        const allLinks = sourceLink ? [sourceLink, ...docLinks.filter(l => l !== sourceLink)] : docLinks;
+        const linksHtml = allLinks.length > 0
+          ? `<div style="margin-top:8px;">${allLinks.map((url, i) => `<a href="${url}" style="color:#1B4332; font-size:12px; font-weight:600; text-decoration:none; margin-right:12px;">${i === 0 ? 'Read Article \u2192' : 'Documentation \u2192'}</a>`).join('')}</div>`
+          : '';
         return `
         <div style="border-left: 4px solid ${badgeBg}; padding: 15px; margin: 15px 0; background: #f9f9f9;">
           <span style="display:inline-block; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold; background:${badgeBg}; color:white; margin-right:8px;">${f.classification}</span>
           <span style="font-size:12px; color:#666;">${f.industry_name}</span>
-          <h3 style="margin: 8px 0 4px 0; font-family: Georgia, serif; color: #1B4332;">${f.title}</h3>
+          <h3 style="margin: 8px 0 4px 0; font-family: Georgia, serif; color: #1B4332;">${sourceLink ? '<a href="' + sourceLink + '" style="color:#1B4332; text-decoration:none;">' + f.title + '</a>' : f.title}</h3>
           <div style="font-size:12px; color:#666; margin-bottom:6px;">${f.source_name} | ${f.date}</div>
           <p style="font-size:14px; color:#333; line-height:1.5; margin:0;">${f.summary}</p>
           <div style="margin-top:8px; font-size:13px;"><strong>Score: ${f.total_score}/30</strong></div>
+          ${linksHtml}
         </div>`;
       }).join('')
     : '<p style="color:#999;">No new findings in the last 24 hours. The next scan runs at 8am UTC.</p>';
@@ -234,13 +241,20 @@ async function generateWeeklyNewsletter(sql) {
 
   const topFindings = findings.slice(0, 5).map(f => {
     const badgeBg = f.classification === 'CRITICAL' ? '#d62828' : f.classification === 'HIGH' ? '#f77f00' : '#2E7D32';
+    const sourceLink = f.source_url && f.source_url.startsWith('http') ? f.source_url : null;
+    const docLinks = f.documentation_links ? f.documentation_links.split('; ').filter(l => l.startsWith('http')) : [];
+    const allLinks = sourceLink ? [sourceLink, ...docLinks.filter(l => l !== sourceLink)] : docLinks;
+    const linksHtml = allLinks.length > 0
+      ? `<div style="margin-top:6px;">${allLinks.map((url, i) => `<a href="${url}" style="color:#1B4332; font-size:12px; font-weight:600; text-decoration:none; margin-right:10px;">${i === 0 ? 'Read Article \u2192' : 'Docs \u2192'}</a>`).join('')}</div>`
+      : '';
     return `
     <div style="border-left:4px solid ${badgeBg}; padding:12px; margin:10px 0; background:#f9f9f9;">
       <span style="display:inline-block; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:bold; background:${badgeBg}; color:white;">${f.classification}</span>
       <span style="font-size:12px; color:#666; margin-left:6px;">${f.industry_name}</span>
-      <div style="font-weight:700; font-size:14px; color:#1B4332; margin-top:6px;">${f.title}</div>
+      <div style="font-weight:700; font-size:14px; color:#1B4332; margin-top:6px;">${sourceLink ? '<a href="' + sourceLink + '" style="color:#1B4332; text-decoration:none;">' + f.title + '</a>' : f.title}</div>
       <div style="font-size:13px; color:#333; margin-top:4px;">${f.summary?.substring(0, 200)}${f.summary?.length > 200 ? '...' : ''}</div>
       <div style="font-size:12px; color:#666; margin-top:4px;">Score: ${f.total_score}/30 | ${f.source_name}</div>
+      ${linksHtml}
     </div>`;
   }).join('');
 
@@ -305,16 +319,24 @@ async function generateAlertEmail(sql) {
   `;
 
   const alertItems = criticals.length > 0
-    ? criticals.map(f => `
+    ? criticals.map(f => {
+        const sourceLink = f.source_url && f.source_url.startsWith('http') ? f.source_url : null;
+        const docLinks = f.documentation_links ? f.documentation_links.split('; ').filter(l => l.startsWith('http')) : [];
+        const allLinks = sourceLink ? [sourceLink, ...docLinks.filter(l => l !== sourceLink)] : docLinks;
+        const linksHtml = allLinks.length > 0
+          ? `<div style="margin-top:10px;">${allLinks.map((url, i) => `<a href="${url}" style="color:#d62828; font-size:13px; font-weight:700; text-decoration:none; margin-right:12px;">${i === 0 ? 'Read Full Article \u2192' : 'Documentation \u2192'}</a>`).join('')}</div>`
+          : '';
+        return `
       <div style="background:white; padding:20px; margin:15px 0; border-left:4px solid #d62828;">
-        <h3 style="color:#1B4332; margin:0 0 8px; font-family:Georgia,serif;">${f.title}</h3>
+        <h3 style="color:#1B4332; margin:0 0 8px; font-family:Georgia,serif;">${sourceLink ? '<a href="' + sourceLink + '" style="color:#1B4332; text-decoration:none;">' + f.title + '</a>' : f.title}</h3>
         <p style="font-size:13px; color:#666;"><strong>Industry:</strong> ${f.industry_name} | <strong>Source:</strong> ${f.source_name} | <strong>Date:</strong> ${f.date}</p>
         <p style="font-size:14px; color:#333; line-height:1.5;">${f.summary}</p>
         <div style="background:#f9f9f9; padding:10px; border-radius:4px; margin-top:8px;">
           <strong>Score: ${f.total_score}/30 (CRITICAL)</strong>
         </div>
+        ${linksHtml}
       </div>
-    `).join('')
+    `;}).join('')
     : '<p style="color:#999;">No critical findings at this time.</p>';
 
   return {
