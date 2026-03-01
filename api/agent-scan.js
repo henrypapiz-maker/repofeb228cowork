@@ -33,11 +33,13 @@ const handler = async (req, res) => {
         max_tokens: 4096,
         system: `You are the AlioFoundry Intelligence Agent. Your role is to discover, evaluate, and score enterprise AI developments that matter to CFOs, PE operators, and enterprise technology leaders.
 
+IMPORTANT: Do NOT fabricate or hallucinate URLs. You do not have web access. Leave source_url as an empty string and documentation_links as an empty array. Only provide real URLs if you are 100% certain they exist.
+
 You must return ONLY valid JSON in this format:
 [
   {
-    "source_url": "https://...",
-    "source_name": "Publication Name",
+    "source_url": "",
+    "source_name": "Publication Name (e.g. McKinsey, Gartner, Forrester)",
     "title": "Finding Title",
     "date": "YYYY-MM-DD",
     "industry_id": 1,
@@ -55,7 +57,7 @@ You must return ONLY valid JSON in this format:
     "summary": "20-250 word summary",
     "key_stats": ["stat1", "stat2"],
     "tools_mentioned": ["tool1", "tool2"],
-    "documentation_links": ["https://..."],
+    "documentation_links": [],
     "action": "add_to_industry_scan"
   }
 ]
