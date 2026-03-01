@@ -1,14 +1,109 @@
 /**
  * AlioFoundry Agent Scan Endpoint
- * POST /api/agent-scan
+ * POST/GET /api/agent-scan
  *
- * Triggers the AlioFoundry Intelligence Agent to scan web sources,
- * score findings, and save to Neon database.
+ * "Search First, Analyze Second" pipeline:
+ * 1. Serper searches real articles across 7 industry verticals
+ * 2. Claude Haiku scores and classifies the real findings
+ * 3. Writes to usecase.findings, content.articles, content.repositories
  *
  * Auth: Requires x-api-key header or ?key= query param matching ADMIN_API_KEY
  */
 
 import { neon } from '@neondatabase/serverless';
+
+// 3 queries per vertical: general search, news, GitHub repos
+const SEARCH_QUERIES = [
+  { industry_id: 1, type: 'search', q: 'AI automation finance accounting CFO close process 2026' },
+  { industry_id: 1, type: 'news',   q: 'agentic AI finance accounting ERP automation' },
+  { industry_id: 1, type: 'repo',   q: 'AI finance accounting automation agent site:github.com' },
+
+  { industry_id: 2, type: 'search', q: 'AI private equity M&A deal sourcing valuation 2026' },
+  { industry_id: 2, type: 'news',   q: 'AI private equity due diligence portfolio value creation' },
+  { industry_id: 2, type: 'repo',   q: 'AI due diligence M&A deal analysis site:github.com' },
+
+  { industry_id: 3, type: 'search', q: 'AI legal tech contract review compliance automation 2026' },
+  { industry_id: 3, type: 'news',   q: 'AI legal contract analysis NLP eDiscovery' },
+  { industry_id: 3, type: 'repo',   q: 'AI legal contract review NLP site:github.com' },
+
+  { industry_id: 4, type: 'search', q: 'AI manufacturing supply chain demand forecasting 2026' },
+  { industry_id: 4, type: 'news',   q: 'AI supply chain inventory optimization manufacturing' },
+  { industry_id: 4, type: 'repo',   q: 'AI supply chain forecasting manufacturing site:github.com' },
+
+  { industry_id: 5, type: 'search', q: 'AI enterprise software SaaS platform agent SDK 2026' },
+  { industry_id: 5, type: 'news',   q: 'AI developer tools agentic framework enterprise platform' },
+  { industry_id: 5, type: 'repo',   q: 'AI agent framework enterprise SDK site:github.com' },
+
+  { industry_id: 6, type: 'search', q: 'AI healthcare clinical decision support revenue cycle 2026' },
+  { industry_id: 6, type: 'news',   q: 'AI healthcare diagnostic FDA approval clinical' },
+  { industry_id: 6, type: 'repo',   q: 'AI healthcare clinical NLP medical site:github.com' },
+
+  { industry_id: 7, type: 'search', q: 'AI aerospace defense predictive maintenance autonomous 2026' },
+  { industry_id: 7, type: 'news',   q: 'AI defense predictive maintenance threat detection autonomous' },
+  { industry_id: 7, type: 'repo',   q: 'AI predictive maintenance aerospace defense site:github.com' },
+];
+
+const INDUSTRY_NAMES = {
+  1: 'Finance & Accounting', 2: 'PE & M&A', 3: 'Legal Tech',
+  4: 'Manufacturing & Distribution', 5: 'Enterprise Software',
+  6: 'Healthcare', 7: 'Aerospace & Defense',
+};
+
+function extractSourceName(url) {
+  try {
+    const host = new URL(url).hostname.replace('www.', '');
+    const names = {
+      'mckinsey.com': 'McKinsey', 'gartner.com': 'Gartner', 'forrester.com': 'Forrester',
+      'deloitte.com': 'Deloitte', 'pwc.com': 'PwC', 'accenture.com': 'Accenture',
+      'bain.com': 'Bain & Company', 'bcg.com': 'BCG', 'kpmg.com': 'KPMG', 'ey.com': 'EY',
+      'forbes.com': 'Forbes', 'techcrunch.com': 'TechCrunch', 'reuters.com': 'Reuters',
+      'bloomberg.com': 'Bloomberg', 'wsj.com': 'Wall Street Journal', 'ft.com': 'Financial Times',
+      'hbr.org': 'Harvard Business Review', 'mit.edu': 'MIT', 'arxiv.org': 'arXiv',
+      'github.com': 'GitHub', 'gitlab.com': 'GitLab', 'medium.com': 'Medium',
+      'venturebeat.com': 'VentureBeat', 'wired.com': 'Wired', 'zdnet.com': 'ZDNet',
+      'openai.com': 'OpenAI', 'anthropic.com': 'Anthropic', 'google.com': 'Google',
+      'microsoft.com': 'Microsoft', 'aws.amazon.com': 'AWS', 'ibm.com': 'IBM',
+    };
+    return names[host] || host.split('.')[0].charAt(0).toUpperCase() + host.split('.')[0].slice(1);
+  } catch { return 'Unknown'; }
+}
+
+async function searchSerper(query) {
+  try {
+    const body = { q: query.q, num: 10 };
+    if (query.type === 'news') body.type = 'news';
+
+    const res = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': process.env.SERPER_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.organic || data.news || []).map(r => ({
+      url: r.link,
+      title: r.title || '',
+      snippet: r.snippet || '',
+      date: r.date || null,
+      source_name: extractSourceName(r.link),
+      industry_id: query.industry_id,
+      is_repo: query.type === 'repo' || /github\.com|gitlab\.com/.test(r.link),
+    }));
+  } catch (err) {
+    console.error('Serper search error:', query.q, err.message);
+    return [];
+  }
+}
+
+function parseGitHubUrl(url) {
+  const match = url.match(/github\.com\/([^/]+)\/([^/?#]+)/);
+  if (!match) return null;
+  return { owner: match[1], name: match[2].replace(/\.git$/, ''), platform: 'github' };
+}
 
 const handler = async (req, res) => {
   const apiKey = req.headers['x-api-key'] || req.query.key;
@@ -16,138 +111,153 @@ const handler = async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  if (!process.env.SERPER_API_KEY) {
+    return res.status(503).json({ error: 'SERPER_API_KEY not configured. Required for real article search.' });
+  }
+
   try {
     const startTime = Date.now();
     const sql = neon(process.env.DATABASE_URL);
-
-    // Call Anthropic API with the AlioFoundry agent skill prompt
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-      },
-      body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 4096,
-        system: `You are the AlioFoundry Intelligence Agent. Your role is to discover, evaluate, and score enterprise AI developments that matter to CFOs, PE operators, and enterprise technology leaders.
-
-IMPORTANT: Do NOT fabricate or hallucinate URLs. You do not have web access. Leave source_url as an empty string and documentation_links as an empty array. Only provide real URLs if you are 100% certain they exist.
-
-You must return ONLY valid JSON in this format:
-[
-  {
-    "source_url": "",
-    "source_name": "Publication Name (e.g. McKinsey, Gartner, Forrester)",
-    "title": "Finding Title",
-    "date": "YYYY-MM-DD",
-    "industry_id": 1,
-    "category": "Category Name",
-    "scores": {
-      "relevance": 1-5,
-      "evidence_quality": 1-5,
-      "actionability": 1-5,
-      "novelty": 1-5,
-      "source_authority": 1-5,
-      "documentation_quality": 1-5
-    },
-    "total_score": 6-30,
-    "classification": "CRITICAL|HIGH|STANDARD|LOW|SKIP",
-    "summary": "20-250 word summary",
-    "key_stats": ["stat1", "stat2"],
-    "tools_mentioned": ["tool1", "tool2"],
-    "documentation_links": [],
-    "action": "add_to_industry_scan"
-  }
-]
-
-Industry IDs: 1=Finance & Accounting, 2=PE & M&A, 3=Legal Tech, 4=Manufacturing & Distribution, 5=Enterprise Software, 6=Healthcare, 7=Aerospace & Defense
-
-Scoring thresholds: 24-30 CRITICAL, 18-23 HIGH, 12-17 STANDARD, 6-11 LOW, <6 SKIP
-
-Documentation Quality (6th dimension): 5=Working code/API docs, 4=Code snippets, 3=Technical papers, 2=Case studies, 1=Press releases only`,
-        messages: [
-          {
-            role: 'user',
-            content: `Run the AlioFoundry scan across all 7 verticals. Search for the latest AI developments in:
-1. Finance & Accounting (agentic AI, close automation)
-2. PE & M&A (deal sourcing, valuation AI)
-3. Legal Tech (contract review, compliance)
-4. Manufacturing & Distribution (supply chain, inventory)
-5. Enterprise Software (new platforms, SaaS disruption)
-6. Healthcare (clinical decision support, revenue cycle)
-7. Aerospace & Defense (predictive maintenance, autonomous systems)
-
-Today's date is ${new Date().toISOString().split('T')[0]}.
-Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classifications.`,
-          },
-        ],
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(500).json({ error: 'Claude API error', details: data });
-    }
-
-    // Parse Claude's response
-    const content = data.content[0].text;
-    let findings = [];
-
-    try {
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        findings = JSON.parse(jsonMatch[0]);
-      } else {
-        findings = JSON.parse(content);
-      }
-    } catch (parseError) {
-      return res.status(500).json({
-        error: 'Failed to parse Claude response as JSON',
-        response: content.substring(0, 500),
-      });
-    }
-
-    // Enrich findings with real article URLs via Serper web search
-    if (process.env.SERPER_API_KEY) {
-      const searchPromises = findings
-        .filter(f => f.classification !== 'SKIP')
-        .map(async (f) => {
-          try {
-            const query = `${f.title} ${f.source_name} AI ${new Date().getFullYear()}`;
-            const searchRes = await fetch('https://google.serper.dev/search', {
-              method: 'POST',
-              headers: {
-                'X-API-KEY': process.env.SERPER_API_KEY,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ q: query, num: 3 }),
-            });
-            if (searchRes.ok) {
-              const searchData = await searchRes.json();
-              const results = searchData.organic || [];
-              if (results.length > 0) {
-                f.source_url = results[0].link;
-                f.documentation_links = results.slice(1, 3).map(r => r.link);
-              }
-            }
-          } catch (searchErr) {
-            console.error('Search error for:', f.title, searchErr.message);
-          }
-        });
-      await Promise.all(searchPromises);
-    }
-
-    // Write findings to Neon DB
     const today = new Date().toISOString().split('T')[0];
+
+    // ─── PHASE 1: SEARCH ───
+    console.log('Phase 1: Searching across 7 verticals...');
+    const allResults = await Promise.all(SEARCH_QUERIES.map(searchSerper));
+    const flatResults = allResults.flat();
+
+    // Deduplicate by URL
+    const seen = new Set();
+    const unique = [];
+    for (const r of flatResults) {
+      if (!r.url || seen.has(r.url)) continue;
+      seen.add(r.url);
+      unique.push(r);
+    }
+
+    // Partition: articles vs repos
+    const articles = unique.filter(r => !r.is_repo);
+    const repos = unique.filter(r => r.is_repo && /github\.com|gitlab\.com/.test(r.url));
+
+    console.log(`Found ${unique.length} unique results (${articles.length} articles, ${repos.length} repos)`);
+
+    // ─── PHASE 2: SCORE WITH CLAUDE ───
+    console.log('Phase 2: Scoring articles with Claude...');
+    const scoredFindings = [];
+    const batchSize = 10;
+
+    for (let i = 0; i < articles.length; i += batchSize) {
+      const batch = articles.slice(i, i + batchSize);
+      try {
+        const batchText = batch.map((a, idx) => (
+          `[${idx + 1}] URL: ${a.url}\nTitle: ${a.title}\nSnippet: ${a.snippet}\nSource: ${a.source_name}\nDate: ${a.date || 'Unknown'}\nIndustry ID: ${a.industry_id} (${INDUSTRY_NAMES[a.industry_id]})`
+        )).join('\n\n');
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+            'x-api-key': process.env.ANTHROPIC_API_KEY,
+          },
+          body: JSON.stringify({
+            model: 'claude-3-haiku-20240307',
+            max_tokens: 4096,
+            system: `You are the AlioFoundry Intelligence Scoring Agent. You receive REAL articles found by web search. Score each using the 6-dimension rubric.
+
+CRITICAL RULES:
+- Use the EXACT URL provided. Do NOT modify or fabricate URLs.
+- Use the exact title provided.
+- Write a 50-200 word summary based on the snippet and your knowledge of the topic.
+- total_score MUST equal the sum of all 6 individual scores.
+
+Return ONLY a JSON array:
+[{
+  "url": "(exact URL from input)",
+  "title": "(exact title from input)",
+  "source_name": "(source from input)",
+  "date": "YYYY-MM-DD or null",
+  "industry_id": (number from input),
+  "category": "descriptive category",
+  "scores": {
+    "relevance": 1-5,
+    "evidence_quality": 1-5,
+    "actionability": 1-5,
+    "novelty": 1-5,
+    "source_authority": 1-5,
+    "documentation_quality": 1-5
+  },
+  "classification": "CRITICAL|HIGH|STANDARD|LOW|SKIP",
+  "summary": "50-200 word summary",
+  "key_stats": ["stat1", "stat2"],
+  "tools_mentioned": ["tool1", "tool2"]
+}]
+
+Scoring: relevance=how applicable to the industry vertical, evidence_quality=quantified evidence in snippet, actionability=can enterprise act on this, novelty=new development vs well-known, source_authority=tier of source, documentation_quality=technical depth.
+
+Classification thresholds: 24-30 CRITICAL, 18-23 HIGH, 12-17 STANDARD, 6-11 LOW, <6 SKIP`,
+            messages: [{
+              role: 'user',
+              content: `Score these ${batch.length} articles. Today is ${today}.\n\n${batchText}`,
+            }],
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          console.error('Claude API error on batch', i / batchSize, data);
+          continue;
+        }
+
+        const content = data.content[0].text;
+        let parsed = [];
+        try {
+          const jsonMatch = content.match(/\[[\s\S]*\]/);
+          parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+        } catch (parseErr) {
+          console.error('JSON parse error on batch', i / batchSize);
+          continue;
+        }
+
+        // Validate and fix scores server-side
+        for (const f of parsed) {
+          const s = f.scores || {};
+          const r = Math.min(5, Math.max(1, s.relevance || 3));
+          const eq = Math.min(5, Math.max(1, s.evidence_quality || 3));
+          const ac = Math.min(5, Math.max(1, s.actionability || 3));
+          const no = Math.min(5, Math.max(1, s.novelty || 3));
+          const sa = Math.min(5, Math.max(1, s.source_authority || 3));
+          const dq = Math.min(5, Math.max(1, s.documentation_quality || 3));
+          const total = r + eq + ac + no + sa + dq;
+
+          f.scores = { relevance: r, evidence_quality: eq, actionability: ac, novelty: no, source_authority: sa, documentation_quality: dq };
+          f.total_score = total;
+          f.classification = total >= 24 ? 'CRITICAL' : total >= 18 ? 'HIGH' : total >= 12 ? 'STANDARD' : total >= 6 ? 'LOW' : 'SKIP';
+
+          // Ensure summary meets minimum length
+          if (!f.summary || f.summary.length < 20) {
+            const orig = batch.find(b => b.url === f.url);
+            f.summary = orig ? `${orig.title}. ${orig.snippet}` : f.title || 'AI development finding.';
+            if (f.summary.length < 20) f.summary = f.summary + ' — Enterprise AI intelligence finding discovered via web search.';
+          }
+
+          scoredFindings.push(f);
+        }
+      } catch (batchErr) {
+        console.error('Batch scoring error:', batchErr.message);
+      }
+    }
+
+    console.log(`Scored ${scoredFindings.length} findings`);
+
+    // ─── PHASE 3: WRITE TO DB ───
+    console.log('Phase 3: Writing to database...');
     let insertedCount = 0;
 
-    for (const f of findings) {
+    for (const f of scoredFindings) {
       if (f.classification === 'SKIP') continue;
 
       try {
+        // Insert into usecase.findings
         await sql`
           INSERT INTO usecase.findings (
             source_url, source_name, title, date, industry_id, category, summary,
@@ -157,44 +267,74 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
             key_stats, tools_mentioned, documentation_links, action,
             status, week_added
           ) VALUES (
-            ${f.source_url || ''},
+            ${f.url || ''},
             ${f.source_name || 'Unknown'},
-            ${f.title},
+            ${(f.title || '').substring(0, 500)},
             ${f.date || today},
             ${f.industry_id || 5},
             ${f.category || 'General'},
-            ${f.summary},
-            ${f.scores?.relevance || 3},
-            ${f.scores?.evidence_quality || 3},
-            ${f.scores?.actionability || 3},
-            ${f.scores?.novelty || 3},
-            ${f.scores?.source_authority || 3},
-            ${f.scores?.documentation_quality || 3},
-            ${f.total_score || 18},
-            ${f.classification || 'STANDARD'},
+            ${(f.summary || '').substring(0, 2500)},
+            ${f.scores.relevance},
+            ${f.scores.evidence_quality},
+            ${f.scores.actionability},
+            ${f.scores.novelty},
+            ${f.scores.source_authority},
+            ${f.scores.documentation_quality},
+            ${f.total_score},
+            ${f.classification},
             ${Array.isArray(f.key_stats) ? f.key_stats.join('; ') : (f.key_stats || '')},
             ${Array.isArray(f.tools_mentioned) ? f.tools_mentioned.join(', ') : (f.tools_mentioned || '')},
-            ${Array.isArray(f.documentation_links) ? f.documentation_links.join('; ') : (f.documentation_links || '')},
-            ${f.action || 'add_to_industry_scan'},
+            ${''},
+            ${'add_to_industry_scan'},
             'Agent-Scanned',
             ${today}
           )
         `;
         insertedCount++;
+
+        // Also insert into content.articles
+        if (f.url && f.url.startsWith('http')) {
+          try {
+            await sql`
+              INSERT INTO content.articles (url, title, source_name, published_date, industry_id, summary)
+              VALUES (${f.url}, ${(f.title || '').substring(0, 500)}, ${f.source_name || 'Unknown'}, ${f.date || today}, ${f.industry_id || 5}, ${(f.summary || '').substring(0, 2500)})
+              ON CONFLICT (url) DO NOTHING
+            `;
+          } catch (artErr) {
+            console.error('Article insert error:', artErr.message);
+          }
+        }
       } catch (dbErr) {
         console.error('DB insert error for finding:', f.title, dbErr.message);
       }
     }
 
-    // Log the scan run
+    // Insert repos
+    let repoCount = 0;
+    for (const r of repos) {
+      const parsed = parseGitHubUrl(r.url);
+      if (!parsed) continue;
+      try {
+        await sql`
+          INSERT INTO content.repositories (url, name, owner, platform, industry_id, description)
+          VALUES (${r.url}, ${parsed.name}, ${parsed.owner}, ${parsed.platform}, ${r.industry_id}, ${r.snippet || r.title || ''})
+          ON CONFLICT (url) DO NOTHING
+        `;
+        repoCount++;
+      } catch (repoErr) {
+        console.error('Repo insert error:', repoErr.message);
+      }
+    }
+
+    // ─── PHASE 4: LOG AND NOTIFY ───
     const duration = Date.now() - startTime;
-    const criticalCount = findings.filter(f => f.classification === 'CRITICAL').length;
-    const highCount = findings.filter(f => f.classification === 'HIGH').length;
-    const standardCount = findings.filter(f => f.classification === 'STANDARD').length;
-    const lowCount = findings.filter(f => f.classification === 'LOW').length;
-    const skipCount = findings.filter(f => f.classification === 'SKIP').length;
-    const avgScore = findings.length > 0
-      ? (findings.reduce((sum, f) => sum + (f.total_score || 0), 0) / findings.length).toFixed(1)
+    const criticalCount = scoredFindings.filter(f => f.classification === 'CRITICAL').length;
+    const highCount = scoredFindings.filter(f => f.classification === 'HIGH').length;
+    const standardCount = scoredFindings.filter(f => f.classification === 'STANDARD').length;
+    const lowCount = scoredFindings.filter(f => f.classification === 'LOW').length;
+    const skipCount = scoredFindings.filter(f => f.classification === 'SKIP').length;
+    const avgScore = scoredFindings.length > 0
+      ? (scoredFindings.reduce((sum, f) => sum + (f.total_score || 0), 0) / scoredFindings.length).toFixed(1)
       : 0;
 
     try {
@@ -209,7 +349,7 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
           ${new Date().toISOString()},
           ${insertedCount}, ${criticalCount}, ${highCount}, ${standardCount}, ${lowCount}, ${skipCount},
           ${avgScore}, 'completed',
-          ${'Duration: ' + duration + 'ms. Model: claude-sonnet-4-5.'}
+          ${'Deep search scan. ' + unique.length + ' sources found, ' + scoredFindings.length + ' scored, ' + insertedCount + ' inserted, ' + repoCount + ' repos. Duration: ' + duration + 'ms.'}
         )
         ON CONFLICT (scan_date) DO UPDATE SET
           end_time = EXCLUDED.end_time,
@@ -225,7 +365,7 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
       console.error('Scan run log error:', logErr.message);
     }
 
-    // Auto-send daily digest email after successful scan
+    // Auto-send daily digest email
     let emailSent = false;
     if (insertedCount > 0 && process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
       try {
@@ -242,14 +382,19 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
       success: true,
       scan_id: today,
       timestamp: new Date().toISOString(),
-      findings_count: insertedCount,
+      sources_searched: unique.length,
+      articles_found: articles.length,
+      repos_found: repos.length,
+      findings_scored: scoredFindings.length,
+      findings_inserted: insertedCount,
+      repos_inserted: repoCount,
       critical_count: criticalCount,
       high_count: highCount,
       standard_count: standardCount,
       avg_score: avgScore,
       duration_ms: duration,
       email_sent: emailSent,
-      findings,
+      findings: scoredFindings.filter(f => f.classification !== 'SKIP'),
     });
   } catch (error) {
     console.error('Agent scan error:', error);

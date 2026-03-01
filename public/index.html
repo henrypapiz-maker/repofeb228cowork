@@ -423,6 +423,140 @@ function ActionsTab() {
   );
 }
 
+function WeeklySummaryTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/weekly-summary')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []);
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: C.muted }}>
+    <div style={{ fontSize: 32, marginBottom: 12, animation: "pulse 2s infinite" }}>Loading Weekly Report...</div>
+  </div>;
+  if (error) return <div style={{ background: "#FEE2E2", borderRadius: 10, padding: 20, color: C.critical }}>Error: {error}</div>;
+  if (!data || !data.success) return <div style={{ color: C.muted, padding: 20 }}>No data available. Run an Agent Scan first.</div>;
+
+  const s = data.summary || {};
+  const classColor = (cl) => cl === 'CRITICAL' ? C.critical : cl === 'HIGH' ? C.high : cl === 'STANDARD' ? C.standard : C.low;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ background: "linear-gradient(135deg, " + C.dark + ", " + C.mid + ")", borderRadius: 10, padding: 24, color: C.white }}>
+        <div style={{ fontFamily: "Georgia, serif", fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Weekly Intelligence Report</div>
+        <div style={{ opacity: 0.8, fontSize: 13, marginBottom: 16 }}>Week of {data.week_of} | Generated {new Date(data.generated_at).toLocaleString()}</div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          {[
+            [s.total || 0, "FINDINGS"], [s.critical || 0, "CRITICAL"], [s.high || 0, "HIGH"],
+            [s.avg_score || 0, "AVG SCORE"], [s.max_score || 0, "TOP SCORE"]
+          ].map(([v, l]) => (
+            <div key={l} style={{ background: "rgba(255,255,255,0.1)", padding: "10px 18px", borderRadius: 6, textAlign: "center", minWidth: 80 }}>
+              <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "Georgia, serif" }}>{v}</div>
+              <div style={{ fontSize: 10, opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 14px", fontSize: 16 }}>Top Findings This Week</h3>
+        {(data.top_findings || []).length === 0 && <div style={{ color: C.muted, fontSize: 14 }}>No findings yet. Run an Agent Scan to populate.</div>}
+        {(data.top_findings || []).slice(0, 10).map((f, i) => {
+          const hasLink = f.source_url && f.source_url.startsWith('http');
+          return (
+            <div key={i} style={{ borderLeft: "4px solid " + classColor(f.classification), padding: "12px 14px", margin: "10px 0", background: "#f9f9f9", borderRadius: "0 6px 6px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Badge type={f.classification}>{f.classification}</Badge>
+                <span style={{ fontSize: 12, color: C.muted }}>{f.industry_name}</span>
+                <span style={{ fontSize: 12, color: C.muted, marginLeft: "auto" }}>Score: {f.total_score}/30</span>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: C.dark, marginBottom: 4 }}>
+                {hasLink ? <a href={f.source_url} target="_blank" rel="noopener noreferrer" style={{ color: C.dark, textDecoration: "none" }}>{f.title}</a> : f.title}
+              </div>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{f.source_name} | {f.date}</div>
+              <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{(f.summary || '').substring(0, 200)}{(f.summary || '').length > 200 ? '...' : ''}</div>
+              {hasLink && (
+                <div style={{ marginTop: 8 }}>
+                  <a href={f.source_url} target="_blank" rel="noopener noreferrer" style={{
+                    display: "inline-block", background: C.dark, color: C.white, padding: "5px 14px",
+                    borderRadius: 4, fontSize: 12, fontWeight: 600, textDecoration: "none"
+                  }}>Read Article &rarr;</a>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {(data.by_industry || []).length > 0 && (
+        <div style={{ background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 14px", fontSize: 16 }}>Industry Breakdown</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={data.by_industry} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis type="number" tick={{ fontSize: 12 }} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={160} />
+              <Tooltip contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }} />
+              <Bar dataKey="cnt" fill={C.dark} name="Total" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="critical" fill={C.critical} name="Critical" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="high" fill={C.high} name="High" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {(data.scan_activity || []).length > 0 && (
+        <div style={{ background: C.white, borderRadius: 10, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+          <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: 0, padding: "16px 20px 10px", fontSize: 16 }}>Scan Activity</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", padding: "8px 16px", background: C.pale, fontSize: 11, fontWeight: 700, color: C.dark, textTransform: "uppercase" }}>
+            <span>Date</span><span>Findings</span><span>Critical</span><span>High</span><span>Avg Score</span>
+          </div>
+          {data.scan_activity.map((sc, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", padding: "8px 16px", borderBottom: "1px solid #f5f5f5", fontSize: 13 }}>
+              <span style={{ fontWeight: 500 }}>{sc.scan_date}</span>
+              <span>{sc.findings_count}</span>
+              <span style={{ color: sc.critical_count > 0 ? C.critical : C.muted, fontWeight: 600 }}>{sc.critical_count}</span>
+              <span style={{ color: sc.high_count > 0 ? C.high : C.muted, fontWeight: 600 }}>{sc.high_count}</span>
+              <span>{sc.avg_score}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {(data.recent_articles || []).length > 0 && (
+          <div style={{ flex: "1 1 400px", background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 12px", fontSize: 16 }}>Recent Articles</h3>
+            {data.recent_articles.slice(0, 8).map((a, i) => (
+              <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid #f5f5f5" }}>
+                <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600, fontSize: 13, color: C.dark, textDecoration: "none" }}>{a.title}</a>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{a.source_name} | {a.industry_name}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(data.recent_repos || []).length > 0 && (
+          <div style={{ flex: "1 1 300px", background: C.white, borderRadius: 10, padding: 20, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <h3 style={{ fontFamily: "Georgia, serif", color: C.dark, margin: "0 0 12px", fontSize: 16 }}>Repositories Discovered</h3>
+            {data.recent_repos.map((r, i) => (
+              <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid #f5f5f5" }}>
+                <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600, fontSize: 13, color: C.dark, textDecoration: "none" }}>{r.owner}/{r.name}</a>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.industry_name} | {r.platform}</div>
+                {r.description && <div style={{ fontSize: 12, color: C.text, marginTop: 2 }}>{r.description.substring(0, 100)}{r.description.length > 100 ? '...' : ''}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
   { key: "overview", label: "Overview", icon: "\uD83D\uDCCA" },
   { key: "findings", label: "Findings", icon: "\uD83D\uDD0D" },
@@ -430,6 +564,7 @@ const TABS = [
   { key: "scorecard", label: "Scorecard", icon: "\uD83D\uDCC8" },
   { key: "industries", label: "Industries", icon: "\uD83C\uDFED" },
   { key: "activity", label: "Activity", icon: "\uD83D\uDCCB" },
+  { key: "weekly", label: "Weekly Report", icon: "\uD83D\uDCCA" },
   { key: "actions", label: "Actions", icon: "\u26A1" },
 ];
 
@@ -446,6 +581,7 @@ function App() {
       case "scorecard": return <ScorecardTab />;
       case "industries": return <IndustriesTab />;
       case "activity": return <ActivityTab />;
+      case "weekly": return <WeeklySummaryTab />;
       case "actions": return <ActionsTab />;
       default: return <OverviewTab />;
     }

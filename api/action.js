@@ -52,6 +52,11 @@ const handler = async (req, res) => {
         const data = await r.json();
         return res.status(r.status).json(data);
       }
+      case 'weekly-summary': {
+        const r = await fetch(`https://${host}/api/weekly-summary`);
+        const data = await r.json();
+        return res.status(r.status).json(data);
+      }
       case 'health': {
         const checks = { api: true, db: false, email: false, timestamp: new Date().toISOString() };
 
@@ -73,7 +78,7 @@ const handler = async (req, res) => {
         return res.status(200).json({ success: true, message: 'Health check complete', checks });
       }
       default:
-        return res.status(400).json({ error: 'Unknown action: ' + action, valid: ['scan', 'daily', 'weekly', 'alert', 'health', 'orchestrate'] });
+        return res.status(400).json({ error: 'Unknown action: ' + action, valid: ['scan', 'daily', 'weekly', 'alert', 'health', 'orchestrate', 'weekly-summary'] });
     }
   } catch (error) {
     console.error('Action proxy error:', error);
