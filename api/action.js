@@ -57,6 +57,37 @@ const handler = async (req, res) => {
         const data = await r.json();
         return res.status(r.status).json(data);
       }
+      case 'cleanup-bad-urls': {
+        if (!process.env.DATABASE_URL) return res.status(503).json({ error: 'No DB' });
+        const sql = neon(process.env.DATABASE_URL);
+
+        // Delete findings with known dead URLs (404s from pre-validation era)
+        const badUrls = [
+          'https://hbr.org/2026/03/how-private-equity-firms-are-using-ai-to-source-and-evaluate-deals',
+          'https://techcrunch.com/2026/02/28/how-ai-driven-saas-platforms-are-disrupting-the-enterprise-software-market/',
+          'https://www.healthcareitnews.com/news/how-ai-clinical-decision-support-systems-are-transforming-care-delivery',
+          'https://www.forbes.com/sites/forbestechcouncil/2026/03/01/how-ai-is-optimizing-manufacturing-and-distribution-supply-chains/',
+          'https://www.healthcareitnews.com/news/how-ai-clinical-decision-support-systems-are-transforming-healthcare',
+          'https://www.aerospace-technology.com/features/the-future-of-ai-in-aerospace-and-defense/',
+        ];
+
+        let deleted = 0;
+        for (const url of badUrls) {
+          const r1 = await sql`DELETE FROM usecase.findings WHERE source_url = ${url}`;
+          const r2 = await sql`DELETE FROM content.articles WHERE url = ${url}`;
+          deleted += (r1.count || 0) + (r2.count || 0);
+        }
+
+        // Also remove findings with empty/null source_url from old hallucinated scans
+        const r3 = await sql`DELETE FROM usecase.findings WHERE source_url IS NULL OR source_url = '' OR source_url = 'N/A'`;
+
+        return res.status(200).json({
+          success: true,
+          message: 'Cleaned bad URLs from database',
+          bad_urls_removed: deleted,
+          empty_urls_removed: r3.count || 0,
+        });
+      }
       case 'health': {
         const checks = { api: true, db: false, email: false, timestamp: new Date().toISOString() };
 
