@@ -110,6 +110,36 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
       });
     }
 
+    // Enrich findings with real article URLs via Serper web search
+    if (process.env.SERPER_API_KEY) {
+      const searchPromises = findings
+        .filter(f => f.classification !== 'SKIP')
+        .map(async (f) => {
+          try {
+            const query = `${f.title} ${f.source_name} AI ${new Date().getFullYear()}`;
+            const searchRes = await fetch('https://google.serper.dev/search', {
+              method: 'POST',
+              headers: {
+                'X-API-KEY': process.env.SERPER_API_KEY,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ q: query, num: 3 }),
+            });
+            if (searchRes.ok) {
+              const searchData = await searchRes.json();
+              const results = searchData.organic || [];
+              if (results.length > 0) {
+                f.source_url = results[0].link;
+                f.documentation_links = results.slice(1, 3).map(r => r.link);
+              }
+            }
+          } catch (searchErr) {
+            console.error('Search error for:', f.title, searchErr.message);
+          }
+        });
+      await Promise.all(searchPromises);
+    }
+
     // Write findings to Neon DB
     const today = new Date().toISOString().split('T')[0];
     let insertedCount = 0;

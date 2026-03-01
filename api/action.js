@@ -67,6 +67,7 @@ const handler = async (req, res) => {
         // Test Resend
         checks.email = !!process.env.RESEND_API_KEY;
         checks.anthropic = !!process.env.ANTHROPIC_API_KEY;
+        checks.serper = !!process.env.SERPER_API_KEY;
         checks.admin_email = process.env.ADMIN_EMAIL || 'not set';
 
         return res.status(200).json({ success: true, message: 'Health check complete', checks });
