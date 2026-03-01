@@ -12,34 +12,35 @@
 
 import { neon } from '@neondatabase/serverless';
 
-// 3 queries per vertical: general search, news, GitHub repos
+// 3 queries per vertical: research/analyst articles, news, GitHub repos
+// Queries target substantiated research — NOT vendor marketing or sales pages
 const SEARCH_QUERIES = [
-  { industry_id: 1, type: 'search', q: 'AI automation finance accounting CFO close process 2026' },
-  { industry_id: 1, type: 'news',   q: 'agentic AI finance accounting ERP automation' },
+  { industry_id: 1, type: 'search', q: 'AI finance accounting research report case study results site:mckinsey.com OR site:pwc.com OR site:deloitte.com OR site:bain.com OR site:hbr.org' },
+  { industry_id: 1, type: 'news',   q: 'agentic AI finance accounting CFO automation case study results' },
   { industry_id: 1, type: 'repo',   q: 'AI finance accounting automation agent site:github.com' },
 
-  { industry_id: 2, type: 'search', q: 'AI private equity M&A deal sourcing valuation 2026' },
-  { industry_id: 2, type: 'news',   q: 'AI private equity due diligence portfolio value creation' },
+  { industry_id: 2, type: 'search', q: 'AI private equity M&A due diligence research report case study site:mckinsey.com OR site:bain.com OR site:bcg.com OR site:pwc.com' },
+  { industry_id: 2, type: 'news',   q: 'AI private equity deal sourcing valuation case study results' },
   { industry_id: 2, type: 'repo',   q: 'AI due diligence M&A deal analysis site:github.com' },
 
-  { industry_id: 3, type: 'search', q: 'AI legal tech contract review compliance automation 2026' },
-  { industry_id: 3, type: 'news',   q: 'AI legal contract analysis NLP eDiscovery' },
+  { industry_id: 3, type: 'search', q: 'AI legal tech contract review research report case study site:gartner.com OR site:forrester.com OR site:thomsonreuters.com OR site:hbr.org' },
+  { industry_id: 3, type: 'news',   q: 'AI legal contract analysis NLP eDiscovery case study implementation' },
   { industry_id: 3, type: 'repo',   q: 'AI legal contract review NLP site:github.com' },
 
-  { industry_id: 4, type: 'search', q: 'AI manufacturing supply chain demand forecasting 2026' },
-  { industry_id: 4, type: 'news',   q: 'AI supply chain inventory optimization manufacturing' },
+  { industry_id: 4, type: 'search', q: 'AI manufacturing supply chain research report case study results site:mckinsey.com OR site:deloitte.com OR site:gartner.com' },
+  { industry_id: 4, type: 'news',   q: 'AI supply chain demand forecasting implementation results case study' },
   { industry_id: 4, type: 'repo',   q: 'AI supply chain forecasting manufacturing site:github.com' },
 
-  { industry_id: 5, type: 'search', q: 'AI enterprise software SaaS platform agent SDK 2026' },
-  { industry_id: 5, type: 'news',   q: 'AI developer tools agentic framework enterprise platform' },
+  { industry_id: 5, type: 'search', q: 'AI enterprise software platform research report analyst case study site:gartner.com OR site:forrester.com OR site:idc.com' },
+  { industry_id: 5, type: 'news',   q: 'AI enterprise SaaS platform agentic framework deployment results' },
   { industry_id: 5, type: 'repo',   q: 'AI agent framework enterprise SDK site:github.com' },
 
-  { industry_id: 6, type: 'search', q: 'AI healthcare clinical decision support revenue cycle 2026' },
-  { industry_id: 6, type: 'news',   q: 'AI healthcare diagnostic FDA approval clinical' },
+  { industry_id: 6, type: 'search', q: 'AI healthcare clinical decision support research study results site:nejm.org OR site:nature.com OR site:healthaffairs.org OR site:nih.gov' },
+  { industry_id: 6, type: 'news',   q: 'AI healthcare diagnostic clinical implementation outcomes study' },
   { industry_id: 6, type: 'repo',   q: 'AI healthcare clinical NLP medical site:github.com' },
 
-  { industry_id: 7, type: 'search', q: 'AI aerospace defense predictive maintenance autonomous 2026' },
-  { industry_id: 7, type: 'news',   q: 'AI defense predictive maintenance threat detection autonomous' },
+  { industry_id: 7, type: 'search', q: 'AI aerospace defense predictive maintenance research report case study site:rand.org OR site:mitre.org OR site:gao.gov OR site:deloitte.com' },
+  { industry_id: 7, type: 'news',   q: 'AI defense predictive maintenance autonomous systems deployment results' },
   { industry_id: 7, type: 'repo',   q: 'AI predictive maintenance aerospace defense site:github.com' },
 ];
 
@@ -48,6 +49,38 @@ const INDUSTRY_NAMES = {
   4: 'Manufacturing & Distribution', 5: 'Enterprise Software',
   6: 'Healthcare', 7: 'Aerospace & Defense',
 };
+
+// Domains that are vendor marketing / sales pages, not research
+const BLOCKED_DOMAINS = new Set([
+  'g2.com', 'capterra.com', 'softwareadvice.com', 'trustradius.com',
+  'getapp.com', 'crozdesk.com', 'sourceforge.net', 'alternativeto.net',
+  'producthunt.com', 'appsumo.com', 'hubspot.com', 'salesforce.com',
+]);
+
+// Validate a URL actually resolves (not 404) via HEAD request
+async function validateUrl(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AlioFoundry/1.0)' },
+    });
+    clearTimeout(timeout);
+    // Accept 200-399 (success + redirects). Reject 404/410 (gone).
+    // 403 = bot-blocked but page exists (McKinsey, Gartner), so accept.
+    return res.status < 400 || res.status === 403;
+  } catch {
+    // Timeout or network error — give benefit of the doubt for known good domains
+    try {
+      const host = new URL(url).hostname.replace('www.', '');
+      const knownGood = ['mckinsey.com', 'gartner.com', 'forrester.com', 'bloomberg.com', 'wsj.com', 'ft.com'];
+      return knownGood.includes(host);
+    } catch { return false; }
+  }
+}
 
 function extractSourceName(url) {
   try {
@@ -134,11 +167,34 @@ const handler = async (req, res) => {
       unique.push(r);
     }
 
-    // Partition: articles vs repos
-    const articles = unique.filter(r => !r.is_repo);
-    const repos = unique.filter(r => r.is_repo && /github\.com|gitlab\.com/.test(r.url));
+    // Filter out vendor marketing domains
+    const filtered = unique.filter(r => {
+      try {
+        const host = new URL(r.url).hostname.replace('www.', '');
+        return !BLOCKED_DOMAINS.has(host);
+      } catch { return false; }
+    });
 
-    console.log(`Found ${unique.length} unique results (${articles.length} articles, ${repos.length} repos)`);
+    // Partition: articles vs repos
+    const rawArticles = filtered.filter(r => !r.is_repo);
+    const repos = filtered.filter(r => r.is_repo && /github\.com|gitlab\.com/.test(r.url));
+
+    console.log(`Found ${unique.length} unique, ${filtered.length} after domain filter (${rawArticles.length} articles, ${repos.length} repos)`);
+
+    // ─── PHASE 1b: VALIDATE ARTICLE URLs ───
+    console.log('Phase 1b: Validating article URLs...');
+    const validationBatchSize = 15;
+    const articles = [];
+    for (let i = 0; i < rawArticles.length; i += validationBatchSize) {
+      const batch = rawArticles.slice(i, i + validationBatchSize);
+      const results = await Promise.all(batch.map(async (a) => {
+        const valid = await validateUrl(a.url);
+        return { ...a, valid };
+      }));
+      articles.push(...results.filter(r => r.valid));
+    }
+    const droppedCount = rawArticles.length - articles.length;
+    console.log(`URL validation: ${articles.length} valid, ${droppedCount} dropped (404/dead)`);
 
     // ─── PHASE 2: SCORE WITH CLAUDE ───
     console.log('Phase 2: Scoring articles with Claude...');
@@ -169,6 +225,9 @@ CRITICAL RULES:
 - Use the exact title provided.
 - Write a 50-200 word summary based on the snippet and your knowledge of the topic.
 - total_score MUST equal the sum of all 6 individual scores.
+- QUALITY FILTER: Prioritize substantiated research — analyst reports, peer-reviewed studies, case studies with measurable outcomes, government/academic research, and established business publications (McKinsey, Gartner, HBR, Nature, RAND, etc.).
+- DEPRIORITIZE: Vendor marketing pages, product landing pages, listicles, SEO-driven "Top 10" roundups, and pages that primarily sell a product rather than present research. Score these LOW or SKIP.
+- A CRITICAL finding must have real evidence: named companies, quantified results, specific implementations, or peer-reviewed data.
 
 Return ONLY a JSON array:
 [{
@@ -192,7 +251,7 @@ Return ONLY a JSON array:
   "tools_mentioned": ["tool1", "tool2"]
 }]
 
-Scoring: relevance=how applicable to the industry vertical, evidence_quality=quantified evidence in snippet, actionability=can enterprise act on this, novelty=new development vs well-known, source_authority=tier of source, documentation_quality=technical depth.
+Scoring: relevance=how applicable to the industry vertical, evidence_quality=quantified evidence with named companies/numbers (not vague claims), actionability=can enterprise act on this, novelty=new development vs well-known, source_authority=tier-1 analyst/academic/government=5, established publication=4, industry blog=3, vendor blog=2, marketing page=1, documentation_quality=technical depth with methodology.
 
 Classification thresholds: 24-30 CRITICAL, 18-23 HIGH, 12-17 STANDARD, 6-11 LOW, <6 SKIP`,
             messages: [{
