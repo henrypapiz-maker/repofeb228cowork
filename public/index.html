@@ -345,35 +345,102 @@ function ActivityTab() {
 
 function ActionsTab() {
   const [logs, setLogs] = useState([]);
-  const log = (msg) => setLogs(prev => [new Date().toLocaleTimeString() + " - " + msg, ...prev].slice(0, 15));
+  const [apiKey, setApiKey] = useState(localStorage.getItem("af_api_key") || "");
+  const [running, setRunning] = useState(null);
+
+  const log = (msg, type) => setLogs(prev => [{ time: new Date().toLocaleTimeString(), msg, type: type || "info" }, ...prev].slice(0, 25));
+
+  const saveKey = (k) => { setApiKey(k); localStorage.setItem("af_api_key", k); };
+
+  const callApi = async (path, label) => {
+    if (!apiKey) { log("API key required. Enter your ADMIN_API_KEY above.", "error"); return; }
+    setRunning(label);
+    log(label + " started...", "info");
+    try {
+      const res = await fetch("/api/" + path + (path.includes("?") ? "&" : "?") + "key=" + apiKey);
+      const data = await res.json();
+      if (data.success) {
+        log(label + " completed. " + (data.message || JSON.stringify(data).substring(0, 120)), "success");
+      } else {
+        log(label + " failed: " + (data.error || "Unknown error"), "error");
+      }
+      return data;
+    } catch (err) {
+      log(label + " error: " + err.message, "error");
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  const runScanAndNotify = async () => {
+    const result = await callApi("agent-scan", "Agent Scan");
+    if (result && result.success) {
+      log("Scan found " + result.findings_count + " findings (" + (result.critical_count || 0) + " CRITICAL). Sending email...", "success");
+      await callApi("notify?type=daily", "Post-Scan Email");
+    }
+  };
+
   const actions = [
-    { label: "Run Agent Scan", icon: "\uD83E\uDD16", desc: "Execute daily scan via Claude API + web search", action: () => log("Agent scan initiated... scanning 14 queries across 7 verticals") },
-    { label: "Generate Newsletter", icon: "\uD83D\uDCF0", desc: "Compile weekly newsletter from DB", action: () => log("Newsletter generation started...") },
-    { label: "Extract Workbook", icon: "\uD83D\uDCCA", desc: "Generate 14-sheet branded .xlsx from DB", action: () => log("Workbook extraction started...") },
-    { label: "Send Daily Email", icon: "\uD83D\uDCE7", desc: "Send daily preview digest", action: () => log("Daily email queued...") },
-    { label: "Send Weekly Rollup", icon: "\uD83D\uDCEC", desc: "Send Friday weekly rollup", action: () => log("Weekly rollup queued...") },
-    { label: "Health Check", icon: "\uD83D\uDC9A", desc: "Verify all systems operational", action: () => log("Health check: DB connected | API healthy | Email configured | Agent ready") },
+    { label: "Run Agent Scan", icon: "\uD83E\uDD16", desc: "Scan all 7 verticals via Claude + save to DB + email results", action: runScanAndNotify },
+    { label: "Send Daily Digest", icon: "\uD83D\uDCE7", desc: "Email today's findings from the database", action: () => callApi("notify?type=daily", "Daily Digest") },
+    { label: "Send Weekly Rollup", icon: "\uD83D\uDCEC", desc: "Email 7-day summary with industry breakdown", action: () => callApi("notify?type=weekly", "Weekly Rollup") },
+    { label: "Send Critical Alert", icon: "\uD83D\uDEA8", desc: "Email most recent CRITICAL findings", action: () => callApi("notify?type=alert", "Critical Alert") },
+    { label: "Run Orchestrator", icon: "\u2699\uFE0F", desc: "Execute full scan + notify + extract pipeline", action: () => callApi("orchestrate", "Orchestrator") },
+    { label: "Health Check", icon: "\uD83D\uDC9A", desc: "Verify API, DB, and email are operational", action: async () => {
+      log("Running health check...", "info");
+      try {
+        const res = await fetch("/api/notify?type=daily&key=" + apiKey);
+        const status = res.ok ? "API: OK" : "API: ERROR " + res.status;
+        log("Health check: " + status + " | Endpoint responding", res.ok ? "success" : "error");
+      } catch (e) { log("Health check failed: " + e.message, "error"); }
+    }},
   ];
+
+  const logColor = (type) => type === "success" ? "#4ade80" : type === "error" ? "#ef4444" : "#60a5fa";
+
   return (
     <div>
       <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.dark, fontWeight: 700, marginBottom: 16 }}>Agent Controls</div>
+
+      <div style={{ background: C.white, borderRadius: 10, padding: 16, marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 6, fontWeight: 600 }}>ADMIN API KEY</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => saveKey(e.target.value)}
+            placeholder="Enter your ADMIN_API_KEY to enable actions..."
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", fontSize: 13, fontFamily: "Courier New, monospace" }}
+          />
+          <div style={{ padding: "8px 12px", borderRadius: 6, background: apiKey ? "#E8F5E9" : "#FFF3E0", color: apiKey ? C.accent : C.high, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center" }}>
+            {apiKey ? "Key Set" : "Required"}
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
         {actions.map((a, i) => (
-          <button key={i} onClick={a.action} style={{
-            background: C.white, borderRadius: 10, padding: 16, border: "1px solid #eee",
-            cursor: "pointer", textAlign: "left", boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
+          <button key={i} onClick={a.action} disabled={running !== null} style={{
+            background: running === a.label ? "#E8F5E9" : C.white, borderRadius: 10, padding: 16, border: running === a.label ? "2px solid " + C.accent : "1px solid #eee",
+            cursor: running ? "wait" : "pointer", textAlign: "left", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", opacity: running && running !== a.label ? 0.5 : 1, transition: "all 0.2s"
           }}>
-            <div style={{ fontSize: 20, marginBottom: 6 }}>{a.icon}</div>
+            <div style={{ fontSize: 20, marginBottom: 6 }}>{running === a.label ? "\u23F3" : a.icon}</div>
             <div style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>{a.label}</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{a.desc}</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{running === a.label ? "Running..." : a.desc}</div>
           </button>
         ))}
       </div>
+
       {logs.length > 0 && (
         <div style={{ background: "#1a1a2e", borderRadius: 10, padding: 16, marginTop: 16 }}>
-          <div style={{ fontSize: 12, color: "#4ade80", fontFamily: "Courier New, monospace", fontWeight: 700, marginBottom: 8 }}>Agent Log</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: "#4ade80", fontFamily: "Courier New, monospace", fontWeight: 700 }}>Agent Log</div>
+            <button onClick={() => setLogs([])} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#6b7280", fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}>Clear</button>
+          </div>
           {logs.map((l, i) => (
-            <div key={i} style={{ fontSize: 12, color: i === 0 ? "#4ade80" : "#6b7280", fontFamily: "Courier New, monospace", padding: "3px 0", opacity: Math.max(0.4, 1 - i * 0.1) }}>{l}</div>
+            <div key={i} style={{ fontSize: 12, color: i === 0 ? logColor(l.type) : "#6b7280", fontFamily: "Courier New, monospace", padding: "3px 0", opacity: Math.max(0.4, 1 - i * 0.06) }}>
+              <span style={{ color: "#4b5563" }}>{l.time}</span> <span style={{ color: logColor(l.type) }}>{l.type === "error" ? "ERR" : l.type === "success" ? "OK " : ">>>"}</span> {l.msg}
+            </div>
           ))}
         </div>
       )}

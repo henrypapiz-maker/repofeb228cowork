@@ -193,6 +193,19 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
       console.error('Scan run log error:', logErr.message);
     }
 
+    // Auto-send daily digest email after successful scan
+    let emailSent = false;
+    if (insertedCount > 0 && process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
+      try {
+        const notifyUrl = `https://${req.headers.host}/api/notify?type=daily&key=${process.env.ADMIN_API_KEY}`;
+        const emailRes = await fetch(notifyUrl);
+        const emailData = await emailRes.json();
+        emailSent = emailData.success || false;
+      } catch (emailErr) {
+        console.error('Auto-notify error:', emailErr.message);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       scan_id: today,
@@ -203,6 +216,7 @@ Return 5-15 high-quality findings with a mix of CRITICAL/HIGH/STANDARD classific
       standard_count: standardCount,
       avg_score: avgScore,
       duration_ms: duration,
+      email_sent: emailSent,
       findings,
     });
   } catch (error) {
