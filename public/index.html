@@ -345,24 +345,30 @@ function ActivityTab() {
 
 function ActionsTab() {
   const [logs, setLogs] = useState([]);
-  const [apiKey, setApiKey] = useState(localStorage.getItem("af_api_key") || "");
   const [running, setRunning] = useState(null);
 
   const log = (msg, type) => setLogs(prev => [{ time: new Date().toLocaleTimeString(), msg, type: type || "info" }, ...prev].slice(0, 25));
 
-  const saveKey = (k) => { setApiKey(k); localStorage.setItem("af_api_key", k); };
-
-  const callApi = async (path, label) => {
-    if (!apiKey) { log("API key required. Enter your ADMIN_API_KEY above.", "error"); return; }
+  const callAction = async (action, label) => {
     setRunning(label);
     log(label + " started...", "info");
     try {
-      const res = await fetch("/api/" + path + (path.includes("?") ? "&" : "?") + "key=" + apiKey);
+      const res = await fetch("/api/action?run=" + action);
       const data = await res.json();
       if (data.success) {
-        log(label + " completed. " + (data.message || JSON.stringify(data).substring(0, 120)), "success");
+        if (action === "health") {
+          const c = data.checks;
+          log("DB: " + (c.db ? "Connected" : "ERROR") + " | Email: " + (c.email ? "Configured" : "Missing") + " | Claude: " + (c.anthropic ? "Configured" : "Missing") + " | Recipient: " + c.admin_email, c.db && c.email ? "success" : "error");
+        } else {
+          log(label + " completed. " + (data.message || ""), "success");
+          if (data.findings_count !== undefined) {
+            log("Found " + data.findings_count + " findings (" + (data.critical_count || 0) + " CRITICAL, " + (data.high_count || 0) + " HIGH). Avg score: " + (data.avg_score || "N/A"), "success");
+          }
+          if (data.email_sent) log("Auto-notification email sent.", "success");
+          if (data.recipient) log("Email delivered to " + data.recipient, "success");
+        }
       } else {
-        log(label + " failed: " + (data.error || "Unknown error"), "error");
+        log(label + " failed: " + (data.error || "Unknown error") + (data.message ? " - " + data.message : ""), "error");
       }
       return data;
     } catch (err) {
@@ -372,28 +378,13 @@ function ActionsTab() {
     }
   };
 
-  const runScanAndNotify = async () => {
-    const result = await callApi("agent-scan", "Agent Scan");
-    if (result && result.success) {
-      log("Scan found " + result.findings_count + " findings (" + (result.critical_count || 0) + " CRITICAL). Sending email...", "success");
-      await callApi("notify?type=daily", "Post-Scan Email");
-    }
-  };
-
   const actions = [
-    { label: "Run Agent Scan", icon: "\uD83E\uDD16", desc: "Scan all 7 verticals via Claude + save to DB + email results", action: runScanAndNotify },
-    { label: "Send Daily Digest", icon: "\uD83D\uDCE7", desc: "Email today's findings from the database", action: () => callApi("notify?type=daily", "Daily Digest") },
-    { label: "Send Weekly Rollup", icon: "\uD83D\uDCEC", desc: "Email 7-day summary with industry breakdown", action: () => callApi("notify?type=weekly", "Weekly Rollup") },
-    { label: "Send Critical Alert", icon: "\uD83D\uDEA8", desc: "Email most recent CRITICAL findings", action: () => callApi("notify?type=alert", "Critical Alert") },
-    { label: "Run Orchestrator", icon: "\u2699\uFE0F", desc: "Execute full scan + notify + extract pipeline", action: () => callApi("orchestrate", "Orchestrator") },
-    { label: "Health Check", icon: "\uD83D\uDC9A", desc: "Verify API, DB, and email are operational", action: async () => {
-      log("Running health check...", "info");
-      try {
-        const res = await fetch("/api/notify?type=daily&key=" + apiKey);
-        const status = res.ok ? "API: OK" : "API: ERROR " + res.status;
-        log("Health check: " + status + " | Endpoint responding", res.ok ? "success" : "error");
-      } catch (e) { log("Health check failed: " + e.message, "error"); }
-    }},
+    { label: "Run Agent Scan", icon: "\uD83E\uDD16", desc: "Scan all 7 verticals via Claude + save to DB + email results", action: () => callAction("scan", "Agent Scan") },
+    { label: "Send Daily Digest", icon: "\uD83D\uDCE7", desc: "Email today's findings from the database", action: () => callAction("daily", "Daily Digest") },
+    { label: "Send Weekly Rollup", icon: "\uD83D\uDCEC", desc: "Email 7-day summary with industry breakdown", action: () => callAction("weekly", "Weekly Rollup") },
+    { label: "Send Critical Alert", icon: "\uD83D\uDEA8", desc: "Email most recent CRITICAL findings", action: () => callAction("alert", "Critical Alert") },
+    { label: "Run Orchestrator", icon: "\u2699\uFE0F", desc: "Execute full scan + notify + extract pipeline", action: () => callAction("orchestrate", "Orchestrator") },
+    { label: "Health Check", icon: "\uD83D\uDC9A", desc: "Verify API, DB, and email are operational", action: () => callAction("health", "Health Check") },
   ];
 
   const logColor = (type) => type === "success" ? "#4ade80" : type === "error" ? "#ef4444" : "#60a5fa";
@@ -401,22 +392,6 @@ function ActionsTab() {
   return (
     <div>
       <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.dark, fontWeight: 700, marginBottom: 16 }}>Agent Controls</div>
-
-      <div style={{ background: C.white, borderRadius: 10, padding: 16, marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
-        <div style={{ fontSize: 12, color: C.muted, marginBottom: 6, fontWeight: 600 }}>ADMIN API KEY</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => saveKey(e.target.value)}
-            placeholder="Enter your ADMIN_API_KEY to enable actions..."
-            style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "1px solid #ddd", fontSize: 13, fontFamily: "Courier New, monospace" }}
-          />
-          <div style={{ padding: "8px 12px", borderRadius: 6, background: apiKey ? "#E8F5E9" : "#FFF3E0", color: apiKey ? C.accent : C.high, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center" }}>
-            {apiKey ? "Key Set" : "Required"}
-          </div>
-        </div>
-      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
         {actions.map((a, i) => (
